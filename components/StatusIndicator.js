@@ -1,10 +1,13 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function StatusIndicator({ label }) {
+export default function StatusIndicator({ label, isConnected }) {
   return (
     <View style={styles.statusContainer}>
-      <View style={styles.statusDot} />
+      <View style={[
+        styles.statusDot, 
+        { backgroundColor: isConnected ? '#39ff14' : '#ff3b30' } // Green online, red offline
+      ]} />
       <Text style={styles.statusText}>{label}</Text>
     </View>
   );
@@ -20,12 +23,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#00f3ff4d', // Blue Theme
     marginRight: 6,
-    shadowColor: '#00f3ff4d',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
   },
   statusText: {
     color: 'rgba(255, 255, 255, 0.4)',

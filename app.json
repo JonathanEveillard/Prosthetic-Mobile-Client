@@ -21,7 +21,16 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT"
+      ],
+      "package": "com.dousee12.prosthetic_app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -29,14 +38,17 @@
     "plugins": [
       "expo-router",
       "expo-router",
-  [
-    "react-native-ble-plx",
-    {
-      "isBackgroundEnabled": false,
-      "modes": ["peripheral", "central"],
-      "bluetoothAlwaysPermission": "Allow this app to connect to your ESP32 LED controller."
-    }
-  ]
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": [
+            "peripheral",
+            "central"
+          ],
+          "bluetoothAlwaysPermission": "Allow this app to connect to your ESP32 LED controller."
+        }
+      ]
     ]
   }
 }

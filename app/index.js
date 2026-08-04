@@ -20,16 +20,16 @@ export default function App() {
 
   const handleSliderChange = (val) => {
     setValue(val);
-    // if (connectedDevice) {
-    //   writeLEDValue(Math.round(val));
-    // }
+    if (connectedDevice) {
+      writeLEDValue(Math.round(val));
+    }
   };
 
   const handleSliderRelease = (val) => {
-  if (connectedDevice) {
-    console.log("Transmitting value:", Math.round(val));
-    writeLEDValue(Math.round(val));
-  }
+  // if (connectedDevice) {
+  //   console.log("Transmitting value:", Math.round(val));
+  //   writeLEDValue(Math.round(val));
+  // }
 };
 
   return (

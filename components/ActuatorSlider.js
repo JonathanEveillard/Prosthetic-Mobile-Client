@@ -15,7 +15,7 @@ export default function ActuatorSlider({ value, onChange, onRelease, disabled })
       <Slider
         style={styles.slider}
         minimumValue={0}
-        maximumValue={255}
+        maximumValue={100}
         step={1}
         value={value}
         onValueChange={onChange}

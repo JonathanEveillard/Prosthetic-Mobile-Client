@@ -1,41 +1,23 @@
 import { useState } from 'react';
 import { PermissionsAndroid, Platform } from 'react-native';
-import { BleManager } from 'react-native-ble-plx';
+import RNBluetoothClassic from 'react-native-bluetooth-classic';
 
-// These UUIDs must match your ESP32 code exactly!
-const SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
-const CHARACTERISTIC_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
-
-// 🎯 FIX 1: Move BleManager globally outside the hook so it is NEVER destroyed on re-render
-const manager = new BleManager();
-
-// Lightweight helper to convert a number (0-255) into a 1-byte Base64 string.
-const base64Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function encodeByteToBase64(byteValue) {
-  const first6 = (byteValue >> 2) & 0x3F;
-  const last2 = (byteValue & 0x03) << 4;
-  return base64Chars[first6] + base64Chars[last2] + '==';
-}
-
-export default function useBLE() {
+export default function useBluetooth() {
   const [connectedDevice, setConnectedDevice] = useState(null);
   const [scannedDevices, setScannedDevices] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
 
-  // Request system permissions (Supports Android 11 and older)
+  // 1. Request Legacy Bluetooth Bond Permissions
   const requestPermissions = async () => {
     if (Platform.OS === 'android') {
       const androidVersion = parseInt(Platform.Version, 10);
       if (androidVersion >= 31) {
+        // Android 12+ requires structural scanning permissions
         const scanGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN);
         const connectGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
-        const locationGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
-        return (
-          scanGranted === PermissionsAndroid.RESULTS.GRANTED &&
-          connectGranted === PermissionsAndroid.RESULTS.GRANTED &&
-          locationGranted === PermissionsAndroid.RESULTS.GRANTED
-        );
+        return scanGranted === PermissionsAndroid.RESULTS.GRANTED && connectGranted === PermissionsAndroid.RESULTS.GRANTED;
       } else {
+        // Android 11 (Your Tecno Pova 2) requires location clearing to view serial interfaces
         const locationGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
         return locationGranted === PermissionsAndroid.RESULTS.GRANTED;
       }
@@ -43,8 +25,9 @@ export default function useBLE() {
     return true; 
   };
 
-  // Scan for our ESP32 device
+  // 2. Scan and fetch your phone's system paired devices list directly
   const scanForDevices = async () => {
+    console.log("🚀 BUTTON TAP DETECTED: Running Classic Scan...");
     const hasPermission = await requestPermissions();
     if (!hasPermission) {
       console.log("Permissions denied by user");
@@ -54,109 +37,71 @@ export default function useBLE() {
     setScannedDevices([]);
     setIsScanning(true);
 
-    const state = await manager.state();
-    if (state !== 'PoweredOn') {
-      console.log("HARDWARE ERROR: Bluetooth is off! State:", state);
+    try {
+      console.log("Pulling bonded registry devices from your Android settings menu...");
+      // Instantly grabs everything paired in your Android Bluetooth settings page
+      const pairedList = await RNBluetoothClassic.getBondedDevices();
+      console.log(`Found ${pairedList.length} total paired devices in system memory.`);
+
+      // Find your modern target board by name or matching MAC address
+      const targetESP32 = pairedList.filter(
+        (d) => d.name === 'ESP32-LED-CLASSIC' || d.id === '2C:F5:B7:85:40:C6'
+      );
+
+      if (targetESP32.length > 0) {
+        console.log("🎯 SUCCESS: Located your ESP32 Classic controller!");
+        setScannedDevices(targetESP32);
+      } else {
+        console.log("⚠️ WARNING: Device not found in list. Make sure you paired 'ESP32-LED-CLASSIC' in your phone's main settings first!");
+      }
+    } catch (err) {
+      console.log("Classic scan array failure: ", err.message || err);
+    } finally {
       setIsScanning(false);
-      return;
     }
-
-    // Using global 'manager' instance
-    manager.startDeviceScan(null, { legacyScan: true }, (error, device) => {
-      if (error) {
-        console.log("SCAN FAILURE: ", error.message);
-        setIsScanning(false);
-        return;
-      }
-
-      if (device) {
-        const isTargetESP32 = 
-          device.id === '2C:F5:B7:85:40:C6' || 
-          device.name === 'ESP32-LED-CTRL' ||
-          (device.serviceUUIDs && device.serviceUUIDs.includes(SERVICE_UUID));
-
-        if (isTargetESP32) {
-          console.log("🎯 SUCCESS: Targeted your ESP32 board directly!");
-          const formattedDevice = { ...device, name: 'ESP32-LED-CTRL (Connected via MAC)' };
-          setScannedDevices((prev) => {
-            if (prev.findIndex((d) => d.id === device.id) > -1) return prev;
-            return [...prev, formattedDevice];
-          });
-        }
-      }
-    });
-
-    setTimeout(() => {
-      manager.stopDeviceScan();
-      setIsScanning(false);
-    }, 10000);
   };
 
-  // Connect to the selected device
+  // 3. Connect cleanly over direct Serial Socket protocol (RFCOMM)
   const connectToDevice = async (device) => {
     try {
-      const targetId = '2C:F5:B7:85:40:C6';
+      console.log("Attempting direct Serial socket stream connection to: ", device.name);
       
-      // 🎯 FIXED: DO NOT stop the scan here! Leave the scanner running 
-      // so Android maintains a live hardware GATT context memory space.
-      console.log("Initiating pure BLE handshake while preserving context with ID: ", targetId);
-
-      const connection = await manager.connectToDevice(targetId, {
-        autoConnect: false,
-        timeout: 8000,
-      });
+      // Connect directly without dealing with annoying BLE GATT profile contexts
+      const isConnected = await device.connect();
       
-      console.log("Establishing data link... Waiting 500ms for stack to settle.");
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      console.log("Discovering hardware endpoints...");
-      const discoveredConnection = await connection.discoverAllServicesAndCharacteristics();
-      
-      // 🎯 SUCCESS HYBRID: Now that we are securely connected, 
-      // it is completely safe to turn off the scanner engine!
-      console.log("Connection verified. Safely shutting down scanner...");
-      manager.stopDeviceScan();
-      setIsScanning(false);
-      
-      setConnectedDevice(discoveredConnection);
-      console.log("Connected successfully!");
+      if (isConnected) {
+        setConnectedDevice(device);
+        console.log("🎉 SUCCESS: Bound cleanly to Serial stream socket!");
+      } else {
+        console.log("Connection failed: Handshake was rejected.");
+      }
     } catch (e) {
-      console.log("Connection error: ", e.message || e);
-      
-      // Fallback: If it still errors out, make sure the scan state is cleared
-      manager.stopDeviceScan();
-      setIsScanning(false);
+      console.log("Classic connection block error: ", e.message || e);
     }
   };
 
-
-
-  // Disconnect from the active device
+  // 4. Disconnect cleanly
   const disconnectFromDevice = async () => {
     if (connectedDevice) {
-      await manager.cancelDeviceConnection(connectedDevice.id);
+      console.log("Closing serial port link...");
+      await connectedDevice.disconnect();
       setConnectedDevice(null);
-      console.log("Disconnected.");
+      console.log("Disconnected completely.");
     }
   };
 
-  // Send the slider value (0-255) to the ESP32
+  // 5. Write the value as plain text string followed by newline code (\n)
   const writeLEDValue = async (value) => {
     if (!connectedDevice) return;
 
     try {
       const sanitizedValue = Math.max(0, Math.min(255, value));
-      const base64Value = encodeByteToBase64(sanitizedValue);
-
-      // Using global 'manager' instance
-      await manager.writeCharacteristicWithoutResponseForDevice(
-        connectedDevice.id,
-        SERVICE_UUID,
-        CHARACTERISTIC_UUID,
-        base64Value
-      );
+      
+      // Delivers clean text numbers (like "150\n") straight over the antenna 
+      // Your ESP32 reads this instantly using SerialBT.readStringUntil('\n')
+      await connectedDevice.write(`${sanitizedValue}\n`);
     } catch (error) {
-      console.log("Write error: ", error);
+      console.log("Serial write failure: ", error.message || error);
     }
   };
 

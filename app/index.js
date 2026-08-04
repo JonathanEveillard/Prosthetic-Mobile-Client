@@ -25,6 +25,13 @@ export default function App() {
     }
   };
 
+  const handleSliderRelease = (val) => {
+  if (connectedDevice) {
+    console.log("Transmitting value:", Math.round(val));
+    writeLEDValue(Math.round(val));
+  }
+};
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
@@ -93,7 +100,8 @@ export default function App() {
         <View style={[styles.sliderArea, !connectedDevice && styles.disabledArea]}>
           <ActuatorSlider 
             value={value} 
-            onChange={handleSliderChange} 
+            onChange={handleSliderChange}
+            onRelease={handleSliderRelease}
             disabled={!connectedDevice} 
           />
           {!connectedDevice && (

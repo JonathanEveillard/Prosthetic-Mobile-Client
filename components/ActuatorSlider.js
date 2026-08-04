@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Slider from '@react-native-community/slider';
 
-export default function ActuatorSlider({ value, onChange }) {
+export default function ActuatorSlider({ value, onChange, onRelease, disabled }) {
   return (
     <View style={styles.sliderContainer}>
       {/* Readout Display */}
@@ -15,10 +15,11 @@ export default function ActuatorSlider({ value, onChange }) {
       <Slider
         style={styles.slider}
         minimumValue={0}
-        maximumValue={100}
+        maximumValue={255}
         step={1}
         value={value}
         onValueChange={onChange}
+        onSlidingComplete={onRelease} 
         minimumTrackTintColor="#f1f1f1" // Glowing cyan track
         maximumTrackTintColor="rgba(255, 255, 255, 0.15)"
         thumbTintColor="#ffffff"

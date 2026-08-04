@@ -17,7 +17,7 @@ export default function useBluetooth() {
         const connectGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT);
         return scanGranted === PermissionsAndroid.RESULTS.GRANTED && connectGranted === PermissionsAndroid.RESULTS.GRANTED;
       } else {
-        // Android 11 (Your Tecno Pova 2) requires location clearing to view serial interfaces
+        // Android 11 requires location clearing to view serial interfaces
         const locationGranted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
         return locationGranted === PermissionsAndroid.RESULTS.GRANTED;
       }

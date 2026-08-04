@@ -27,7 +27,7 @@ export default function useBluetooth() {
 
   // 2. Scan and fetch your phone's system paired devices list directly
   const scanForDevices = async () => {
-    console.log("🚀 BUTTON TAP DETECTED: Running Classic Scan...");
+    console.log("BUTTON TAP DETECTED: Running Classic Scan...");
     const hasPermission = await requestPermissions();
     if (!hasPermission) {
       console.log("Permissions denied by user");
@@ -49,10 +49,10 @@ export default function useBluetooth() {
       );
 
       if (targetESP32.length > 0) {
-        console.log("🎯 SUCCESS: Located your ESP32 Classic controller!");
+        console.log("SUCCESS: Located your ESP32 Classic controller!");
         setScannedDevices(targetESP32);
       } else {
-        console.log("⚠️ WARNING: Device not found in list. Make sure you paired 'ESP32-LED-CLASSIC' in your phone's main settings first!");
+        console.log("WARNING: Device not found in list. Make sure you paired 'ESP32-LED-CLASSIC' in your phone's main settings first!");
       }
     } catch (err) {
       console.log("Classic scan array failure: ", err.message || err);
@@ -71,7 +71,7 @@ export default function useBluetooth() {
       
       if (isConnected) {
         setConnectedDevice(device);
-        console.log("🎉 SUCCESS: Bound cleanly to Serial stream socket!");
+        console.log("SUCCESS: Bound cleanly to Serial stream socket!");
       } else {
         console.log("Connection failed: Handshake was rejected.");
       }

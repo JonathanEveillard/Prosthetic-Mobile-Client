@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, StatusBar, TouchableOpacity, ScrollView, Activi
 import StatusIndicator from '../components/StatusIndicator';
 import ActuatorSlider from '../components/ActuatorSlider';
 import { Colors } from '../constants/Colors';
-import useBLE from '../hooks/useBLE'; 
+import useBluetooth from '../hooks/useBluetooth'; 
 
 export default function App() {
   const [value, setValue] = useState(0);
@@ -16,13 +16,13 @@ export default function App() {
     connectToDevice,
     disconnectFromDevice,
     writeLEDValue,
-  } = useBLE();
+  } = useBluetooth();
 
   const handleSliderChange = (val) => {
     setValue(val);
-    if (connectedDevice) {
-      writeLEDValue(Math.round(val));
-    }
+    // if (connectedDevice) {
+    //   writeLEDValue(Math.round(val));
+    // }
   };
 
   const handleSliderRelease = (val) => {

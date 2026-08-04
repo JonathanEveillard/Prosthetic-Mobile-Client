@@ -36,7 +36,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router"
+      "expo-router",
+      [
+        "with-rn-bluetooth-classic",
+        {
+          "alwaysUsageDescription": "Allow app to pair with the ESP32 actuator."
+        }
+      ]
     ]
   }
 }

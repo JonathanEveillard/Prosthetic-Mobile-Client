@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, StatusBar, TouchableOpacity, Share } from 'react-native';
+import { StyleSheet, Text, View, StatusBar, TouchableOpacity, Share, FlatList } from 'react-native';
 import { Link } from 'expo-router'; 
 
 
@@ -25,7 +25,7 @@ export default function App() {
   const sendTimerRef = useRef(null);
 
   // Debounce sending the actuator value to the ESP32 (fires 200 ms after the
-  // user stops moving the slider to avoid flooding the BLE write queue).
+  // user stops moving the slider to avoid flooding the serial write queue).
   useEffect(() => {
     if (!isConnected) return;
     clearTimeout(sendTimerRef.current);
@@ -67,19 +67,37 @@ export default function App() {
           Calibration Monitor
         </Link>
 
-        {/* BLE Connect / Disconnect button */}
+        {/* Bluetooth Connect / Disconnect button */}
         <TouchableOpacity
           style={[styles.bleButton, isConnected && styles.bleButtonConnected]}
           onPress={isConnected ? disconnectFromDevice : scanForDevices}
           disabled={isScanning}
         >
           <Text style={styles.bleButtonText}>
-            {isScanning ? 'SCANNING…' : isConnected ? 'DISCONNECT' : 'CONNECT TO ESP32'}
+            {isScanning ? 'SCANNING…' : isConnected ? 'DISCONNECT' : 'SCAN FOR ESP32'}
           </Text>
         </TouchableOpacity>
 
-        {/* BLE error message */}
+        {/* Error message */}
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        {/* Device picker — shown after scan, hidden once connected */}
+        {!isConnected && scannedDevices.length > 0 && (
+          <FlatList
+            data={scannedDevices}
+            keyExtractor={(item) => item.id}
+            style={styles.deviceList}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.deviceItem}
+                onPress={() => connectToDevice(item)}
+              >
+                <Text style={styles.deviceName}>{item.name || 'Unknown'}</Text>
+                <Text style={styles.deviceId}>{item.id}</Text>
+              </TouchableOpacity>
+            )}
+          />
+        )}
 
         {/* Raw Feed Output display */}
         <View style={styles.footer}>
@@ -132,6 +150,30 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 4,
     marginBottom: 4,
+  },
+  deviceList: {
+    width: '100%',
+    maxHeight: 120,
+    marginTop: 8,
+  },
+  deviceItem: {
+    backgroundColor: 'rgba(0, 243, 255, 0.06)',
+    borderColor: '#00f3ff4d',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+  },
+  deviceName: {
+    color: '#f1f1f1',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  deviceId: {
+    color: 'rgba(255, 255, 255, 0.35)',
+    fontSize: 10,
+    marginTop: 2,
   },
   linkText:{
     color: '#1a1a1a',

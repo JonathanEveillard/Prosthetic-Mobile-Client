@@ -1,45 +1,31 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { BleManager } from 'react-native-ble-plx';
+import { useState, useCallback } from 'react';
 import { Platform, PermissionsAndroid } from 'react-native';
+import RNBluetoothClassic from 'react-native-bluetooth-classic';
 
-// ─── ESP32 BLE Configuration ───────────────────────────────────────────────
-// Change these to match the UUIDs defined in your ESP32 firmware.
-export const ESP32_DEVICE_NAME = 'ProstheticESP32';
-export const SERVICE_UUID      = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
-export const CHAR_UUID         = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+// ─── ESP32 Classic Bluetooth Configuration ────────────────────────────────
+// Change these to match your ESP32's advertised name or MAC address.
+export const ESP32_DEVICE_NAME = 'ESP32-LED-CLASSIC';
+export const ESP32_MAC_ADDRESS = '2C:F5:B7:85:40:C6';
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function useBluetooth() {
-  const [isScanning, setIsScanning]         = useState(false);
-  const [isConnected, setIsConnected]       = useState(false);
-  const [scannedDevices, setScannedDevices] = useState([]);
+  const [isScanning, setIsScanning]           = useState(false);
+  const [isConnected, setIsConnected]         = useState(false);
+  const [scannedDevices, setScannedDevices]   = useState([]);
   const [connectedDevice, setConnectedDevice] = useState(null);
-  const [error, setError]                   = useState(null);
+  const [error, setError]                     = useState(null);
 
-  const managerRef   = useRef(null);
-  const deviceRef    = useRef(null);
-  const scanTimerRef = useRef(null);
-
-  // Create the BleManager once and destroy it when the component unmounts
-  useEffect(() => {
-    managerRef.current = new BleManager();
-    return () => {
-      clearTimeout(scanTimerRef.current);
-      managerRef.current.destroy();
-    };
-  }, []);
-
-  /** Request Android BLE permissions (Android 12+). */
-  async function requestAndroidPermissions() {
+  /** Request Android Bluetooth permissions. */
+  async function requestPermissions() {
     if (Platform.OS !== 'android') return true;
     if (Platform.Version >= 31) {
       const results = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
       ]);
-      return (
-        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN]    === PermissionsAndroid.RESULTS.GRANTED &&
-        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED
+      return Object.values(results).every(
+        (r) => r === PermissionsAndroid.RESULTS.GRANTED,
       );
     }
     const result = await PermissionsAndroid.request(
@@ -48,91 +34,92 @@ export default function useBluetooth() {
     return result === PermissionsAndroid.RESULTS.GRANTED;
   }
 
-  /** Scan for nearby BLE devices and populate scannedDevices. */
+  /**
+   * Scan and fetch your phone's system paired devices list directly.
+   * Filters for the ESP32 by name or MAC address.
+   */
   const scanForDevices = useCallback(async () => {
+    console.log('BUTTON TAP DETECTED: Running Classic Scan...');
     setError(null);
-    setScannedDevices([]);
-    const granted = await requestAndroidPermissions();
-    if (!granted) {
+    const hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      console.log('Permissions denied by user');
       setError('Bluetooth permissions denied.');
       return;
     }
 
+    setScannedDevices([]);
     setIsScanning(true);
-    managerRef.current.startDeviceScan(null, null, (scanError, scannedDevice) => {
-      if (scanError) {
-        setError(scanError.message);
-        setIsScanning(false);
-        return;
-      }
 
-      if (scannedDevice?.name) {
-        setScannedDevices((prev) => {
-          const alreadyFound = prev.some((d) => d.id === scannedDevice.id);
-          return alreadyFound ? prev : [...prev, scannedDevice];
-        });
-      }
-    });
+    try {
+      console.log('Pulling bonded registry devices from your Android settings menu...');
+      // Instantly grabs everything paired in your Android Bluetooth settings page
+      const pairedList = await RNBluetoothClassic.getBondedDevices();
+      console.log(`Found ${pairedList.length} total paired devices in system memory.`);
 
-    // Stop scanning after 10 s
-    scanTimerRef.current = setTimeout(() => {
-      managerRef.current.stopDeviceScan();
+      // Find your target board by name or matching MAC address
+      const targetESP32 = pairedList.filter(
+        (d) => d.name === ESP32_DEVICE_NAME || d.id === ESP32_MAC_ADDRESS,
+      );
+
+      if (targetESP32.length > 0) {
+        console.log('SUCCESS: Located your ESP32 Classic controller!');
+        setScannedDevices(targetESP32);
+      } else {
+        console.log(
+          `WARNING: Device not found. Make sure you paired '${ESP32_DEVICE_NAME}' in your phone's Bluetooth settings first!`,
+        );
+        setError(
+          `Device not found. Pair '${ESP32_DEVICE_NAME}' in your phone's Bluetooth settings first.`,
+        );
+      }
+    } catch (err) {
+      console.log('Classic scan failure: ', err.message || err);
+      setError(err.message || 'Scan failed.');
+    } finally {
       setIsScanning(false);
-    }, 10000);
+    }
   }, []);
 
-  /** Connect to a specific device from scannedDevices. */
+  /** Connect to a device from scannedDevices. */
   const connectToDevice = useCallback(async (device) => {
     setError(null);
-    managerRef.current.stopDeviceScan();
-    clearTimeout(scanTimerRef.current);
-    setIsScanning(false);
     try {
       const connected = await device.connect();
-      await connected.discoverAllServicesAndCharacteristics();
-      deviceRef.current = connected;
       setConnectedDevice(connected);
       setIsConnected(true);
-
-      // Listen for disconnection
-      connected.onDisconnected(() => {
-        deviceRef.current = null;
-        setConnectedDevice(null);
-        setIsConnected(false);
-      });
     } catch (connectError) {
+      console.log('Connection failed:', connectError.message);
       setError(connectError.message);
     }
   }, []);
 
   /** Disconnect from the connected device. */
   const disconnectFromDevice = useCallback(async () => {
-    if (deviceRef.current) {
-      await deviceRef.current.cancelConnection();
-      deviceRef.current = null;
+    if (connectedDevice) {
+      try {
+        await connectedDevice.disconnect();
+      } catch (_) {
+        // ignore errors on disconnect
+      }
       setConnectedDevice(null);
       setIsConnected(false);
     }
-  }, []);
+  }, [connectedDevice]);
 
   /**
-   * Write an LED/actuator value (0–100) to the ESP32.
-   * The value is encoded as a Base64 string of a single byte (0–100).
+   * Write an LED/actuator value (0–100) to the ESP32 as a plain string.
+   * The ESP32 firmware should read this as a numeric ASCII string.
    */
   const writeLEDValue = useCallback(async (value) => {
-    if (!deviceRef.current || !isConnected) return;
+    if (!connectedDevice || !isConnected) return;
     try {
-      const byte   = Math.round(value);
-      const base64 = btoa(String.fromCharCode(byte));
-      await deviceRef.current.writeCharacteristicWithResponseForService(
-        SERVICE_UUID,
-        CHAR_UUID,
-        base64,
-      );
+      await connectedDevice.write(`${Math.round(value)}\n`);
     } catch (writeError) {
+      console.log('Write failed:', writeError.message);
       setError(writeError.message);
     }
-  }, [isConnected]);
+  }, [connectedDevice, isConnected]);
 
   return {
     isScanning,

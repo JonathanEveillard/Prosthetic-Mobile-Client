@@ -9,13 +9,15 @@ export const SERVICE_UUID      = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 export const CHAR_UUID         = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
 // ────────────────────────────────────────────────────────────────────────────
 
-export default function useBLE() {
-  const [isScanning, setIsScanning]     = useState(false);
-  const [isConnected, setIsConnected]   = useState(false);
-  const [error, setError]               = useState(null);
+export default function useBluetooth() {
+  const [isScanning, setIsScanning]         = useState(false);
+  const [isConnected, setIsConnected]       = useState(false);
+  const [scannedDevices, setScannedDevices] = useState([]);
+  const [connectedDevice, setConnectedDevice] = useState(null);
+  const [error, setError]                   = useState(null);
 
-  const managerRef  = useRef(null);
-  const deviceRef   = useRef(null);
+  const managerRef   = useRef(null);
+  const deviceRef    = useRef(null);
   const scanTimerRef = useRef(null);
 
   // Create the BleManager once and destroy it when the component unmounts
@@ -46,9 +48,10 @@ export default function useBLE() {
     return result === PermissionsAndroid.RESULTS.GRANTED;
   }
 
-  /** Scan for the ESP32 and connect once found. */
-  const connectToESP32 = useCallback(async () => {
+  /** Scan for nearby BLE devices and populate scannedDevices. */
+  const scanForDevices = useCallback(async () => {
     setError(null);
+    setScannedDevices([]);
     const granted = await requestAndroidPermissions();
     if (!granted) {
       setError('Bluetooth permissions denied.');
@@ -56,61 +59,69 @@ export default function useBLE() {
     }
 
     setIsScanning(true);
-    managerRef.current.startDeviceScan(null, null, async (scanError, scannedDevice) => {
+    managerRef.current.startDeviceScan(null, null, (scanError, scannedDevice) => {
       if (scanError) {
         setError(scanError.message);
         setIsScanning(false);
         return;
       }
 
-      if (scannedDevice?.name === ESP32_DEVICE_NAME) {
-        managerRef.current.stopDeviceScan();
-        clearTimeout(scanTimerRef.current);
-        setIsScanning(false);
-        try {
-          const connected = await scannedDevice.connect();
-          await connected.discoverAllServicesAndCharacteristics();
-          deviceRef.current = connected;
-          setIsConnected(true);
-
-          // Listen for disconnection
-          connected.onDisconnected(() => {
-            deviceRef.current = null;
-            setIsConnected(false);
-          });
-        } catch (connectError) {
-          setError(connectError.message);
-        }
+      if (scannedDevice?.name) {
+        setScannedDevices((prev) => {
+          const alreadyFound = prev.some((d) => d.id === scannedDevice.id);
+          return alreadyFound ? prev : [...prev, scannedDevice];
+        });
       }
     });
 
-    // Stop scanning after 10 s if not found
+    // Stop scanning after 10 s
     scanTimerRef.current = setTimeout(() => {
-      if (!deviceRef.current) {
-        managerRef.current.stopDeviceScan();
-        setIsScanning(false);
-        setError(`Could not find "${ESP32_DEVICE_NAME}". Make sure the device is on and nearby.`);
-      }
+      managerRef.current.stopDeviceScan();
+      setIsScanning(false);
     }, 10000);
   }, []);
 
-  /** Disconnect from the ESP32. */
-  const disconnect = useCallback(async () => {
+  /** Connect to a specific device from scannedDevices. */
+  const connectToDevice = useCallback(async (device) => {
+    setError(null);
+    managerRef.current.stopDeviceScan();
+    clearTimeout(scanTimerRef.current);
+    setIsScanning(false);
+    try {
+      const connected = await device.connect();
+      await connected.discoverAllServicesAndCharacteristics();
+      deviceRef.current = connected;
+      setConnectedDevice(connected);
+      setIsConnected(true);
+
+      // Listen for disconnection
+      connected.onDisconnected(() => {
+        deviceRef.current = null;
+        setConnectedDevice(null);
+        setIsConnected(false);
+      });
+    } catch (connectError) {
+      setError(connectError.message);
+    }
+  }, []);
+
+  /** Disconnect from the connected device. */
+  const disconnectFromDevice = useCallback(async () => {
     if (deviceRef.current) {
       await deviceRef.current.cancelConnection();
       deviceRef.current = null;
+      setConnectedDevice(null);
       setIsConnected(false);
     }
   }, []);
 
   /**
-   * Send an actuator value (0–100) to the ESP32.
+   * Write an LED/actuator value (0–100) to the ESP32.
    * The value is encoded as a Base64 string of a single byte (0–100).
    */
-  const sendValue = useCallback(async (value) => {
+  const writeLEDValue = useCallback(async (value) => {
     if (!deviceRef.current || !isConnected) return;
     try {
-      // Encode the integer 0-100 as a single byte in Base64
       const byte   = Math.round(value);
       const base64 = btoa(String.fromCharCode(byte));
       await deviceRef.current.writeCharacteristicWithResponseForService(
@@ -126,9 +137,12 @@ export default function useBLE() {
   return {
     isScanning,
     isConnected,
+    scannedDevices,
+    connectedDevice,
     error,
-    connectToESP32,
-    disconnect,
-    sendValue,
+    scanForDevices,
+    connectToDevice,
+    disconnectFromDevice,
+    writeLEDValue,
   };
 }

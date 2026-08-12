@@ -5,14 +5,23 @@ import { Link } from 'expo-router';
 
 import StatusIndicator from '../components/StatusIndicator';
 import ActuatorSlider from '../components/ActuatorSlider';
-import useBLE from '../hooks/useBLE';
+import useBluetooth from '../hooks/useBLE';
 
 
 import {Colors} from "../constants/Colors"
 // import { Colors } from 'react-native/types_generated/Libraries/Animated/AnimatedExports';
 export default function App() {
   const [value, setValue] = useState(0);
-  const { isScanning, isConnected, error, connectToESP32, disconnect, sendValue } = useBLE();
+  const {
+    isScanning,
+    isConnected,
+    scannedDevices,
+    connectedDevice,
+    scanForDevices,
+    connectToDevice,
+    disconnectFromDevice,
+    writeLEDValue,
+  } = useBluetooth();
   const sendTimerRef = useRef(null);
 
   // Debounce sending the actuator value to the ESP32 (fires 200 ms after the
@@ -21,10 +30,10 @@ export default function App() {
     if (!isConnected) return;
     clearTimeout(sendTimerRef.current);
     sendTimerRef.current = setTimeout(() => {
-      sendValue(value);
+      writeLEDValue(value);
     }, 200);
     return () => clearTimeout(sendTimerRef.current);
-  }, [value, isConnected, sendValue]);
+  }, [value, isConnected, writeLEDValue]);
 
   // Sharing telemetry feed mock (native share panel)
   const handleCopy = async () => {
@@ -61,7 +70,7 @@ export default function App() {
         {/* BLE Connect / Disconnect button */}
         <TouchableOpacity
           style={[styles.bleButton, isConnected && styles.bleButtonConnected]}
-          onPress={isConnected ? disconnect : connectToESP32}
+          onPress={isConnected ? disconnectFromDevice : scanForDevices}
           disabled={isScanning}
         >
           <Text style={styles.bleButtonText}>

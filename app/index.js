@@ -1,16 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, StatusBar, TouchableOpacity, Share } from 'react-native';
 import { Link } from 'expo-router'; 
 
 
 import StatusIndicator from '../components/StatusIndicator';
 import ActuatorSlider from '../components/ActuatorSlider';
+import useBLE from '../hooks/useBLE';
 
 
 import {Colors} from "../constants/Colors"
 // import { Colors } from 'react-native/types_generated/Libraries/Animated/AnimatedExports';
 export default function App() {
   const [value, setValue] = useState(0);
+  const { isScanning, isConnected, error, connectToESP32, disconnect, sendValue } = useBLE();
+
+  // Send the actuator value to the ESP32 whenever it changes and we're connected
+  useEffect(() => {
+    if (isConnected) {
+      sendValue(value);
+    }
+  }, [value, isConnected, sendValue]);
 
   // Sharing telemetry feed mock (native share panel)
   const handleCopy = async () => {
@@ -18,8 +27,8 @@ export default function App() {
       await Share.share({
         message: `Actuator Feed: ${value}%`,
       });
-    } catch (error) {
-      console.log(error.message);
+    } catch (shareError) {
+      console.log(shareError.message);
     }
   };
 
@@ -31,7 +40,7 @@ export default function App() {
       <View style={styles.card}>
         
         {/* Connection status dot component */}
-        <StatusIndicator label="STATUS" />
+        <StatusIndicator label="STATUS" connected={isConnected} />
         
         {/* Main Title */}
         <Text style={styles.title}></Text>
@@ -43,6 +52,20 @@ export default function App() {
         <Link href="/calibration" style={styles.linkText}>
           Calibration Monitor
         </Link>
+
+        {/* BLE Connect / Disconnect button */}
+        <TouchableOpacity
+          style={[styles.bleButton, isConnected && styles.bleButtonConnected]}
+          onPress={isConnected ? disconnect : connectToESP32}
+          disabled={isScanning}
+        >
+          <Text style={styles.bleButtonText}>
+            {isScanning ? 'SCANNING…' : isConnected ? 'DISCONNECT' : 'CONNECT TO ESP32'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* BLE error message */}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         {/* Raw Feed Output display */}
         <View style={styles.footer}>
@@ -67,6 +90,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
+  },
+  bleButton: {
+    backgroundColor: 'rgba(0, 243, 255, 0.12)',
+    borderColor: '#00f3ff4d',
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  bleButtonConnected: {
+    backgroundColor: 'rgba(0, 255, 136, 0.12)',
+    borderColor: '#00ff884d',
+  },
+  bleButtonText: {
+    color: '#f1f1f1',
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  errorText: {
+    color: '#ff6b6b',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 4,
   },
   linkText:{
     color: '#1a1a1a',

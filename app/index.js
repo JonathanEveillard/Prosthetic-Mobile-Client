@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, StatusBar, TouchableOpacity, Share } from 'react-native';
 import { Link } from 'expo-router'; 
 
@@ -13,12 +13,17 @@ import {Colors} from "../constants/Colors"
 export default function App() {
   const [value, setValue] = useState(0);
   const { isScanning, isConnected, error, connectToESP32, disconnect, sendValue } = useBLE();
+  const sendTimerRef = useRef(null);
 
-  // Send the actuator value to the ESP32 whenever it changes and we're connected
+  // Debounce sending the actuator value to the ESP32 (fires 200 ms after the
+  // user stops moving the slider to avoid flooding the BLE write queue).
   useEffect(() => {
-    if (isConnected) {
+    if (!isConnected) return;
+    clearTimeout(sendTimerRef.current);
+    sendTimerRef.current = setTimeout(() => {
       sendValue(value);
-    }
+    }, 200);
+    return () => clearTimeout(sendTimerRef.current);
   }, [value, isConnected, sendValue]);
 
   // Sharing telemetry feed mock (native share panel)

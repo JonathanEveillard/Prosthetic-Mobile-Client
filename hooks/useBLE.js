@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { BleManager } from 'react-native-ble-plx';
 import { Platform, PermissionsAndroid } from 'react-native';
 
@@ -9,14 +9,23 @@ export const SERVICE_UUID      = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 export const CHAR_UUID         = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
 // ────────────────────────────────────────────────────────────────────────────
 
-const manager = new BleManager();
-
 export default function useBLE() {
   const [isScanning, setIsScanning]     = useState(false);
-  const [device, setDevice]             = useState(null);
   const [isConnected, setIsConnected]   = useState(false);
   const [error, setError]               = useState(null);
-  const deviceRef = useRef(null);
+
+  const managerRef  = useRef(null);
+  const deviceRef   = useRef(null);
+  const scanTimerRef = useRef(null);
+
+  // Create the BleManager once and destroy it when the component unmounts
+  useEffect(() => {
+    managerRef.current = new BleManager();
+    return () => {
+      clearTimeout(scanTimerRef.current);
+      managerRef.current.destroy();
+    };
+  }, []);
 
   /** Request Android BLE permissions (Android 12+). */
   async function requestAndroidPermissions() {
@@ -27,7 +36,7 @@ export default function useBLE() {
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       ]);
       return (
-        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN]  === PermissionsAndroid.RESULTS.GRANTED &&
+        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN]    === PermissionsAndroid.RESULTS.GRANTED &&
         results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED
       );
     }
@@ -47,7 +56,7 @@ export default function useBLE() {
     }
 
     setIsScanning(true);
-    manager.startDeviceScan(null, null, async (scanError, scannedDevice) => {
+    managerRef.current.startDeviceScan(null, null, async (scanError, scannedDevice) => {
       if (scanError) {
         setError(scanError.message);
         setIsScanning(false);
@@ -55,19 +64,18 @@ export default function useBLE() {
       }
 
       if (scannedDevice?.name === ESP32_DEVICE_NAME) {
-        manager.stopDeviceScan();
+        managerRef.current.stopDeviceScan();
+        clearTimeout(scanTimerRef.current);
         setIsScanning(false);
         try {
           const connected = await scannedDevice.connect();
           await connected.discoverAllServicesAndCharacteristics();
           deviceRef.current = connected;
-          setDevice(connected);
           setIsConnected(true);
 
           // Listen for disconnection
           connected.onDisconnected(() => {
             deviceRef.current = null;
-            setDevice(null);
             setIsConnected(false);
           });
         } catch (connectError) {
@@ -77,9 +85,9 @@ export default function useBLE() {
     });
 
     // Stop scanning after 10 s if not found
-    setTimeout(() => {
+    scanTimerRef.current = setTimeout(() => {
       if (!deviceRef.current) {
-        manager.stopDeviceScan();
+        managerRef.current.stopDeviceScan();
         setIsScanning(false);
         setError(`Could not find "${ESP32_DEVICE_NAME}". Make sure the device is on and nearby.`);
       }
@@ -91,7 +99,6 @@ export default function useBLE() {
     if (deviceRef.current) {
       await deviceRef.current.cancelConnection();
       deviceRef.current = null;
-      setDevice(null);
       setIsConnected(false);
     }
   }, []);

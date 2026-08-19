@@ -1,12 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Platform, PermissionsAndroid } from 'react-native';
-import RNBluetoothClassic from 'react-native-bluetooth-classic';
+import { BleManager } from 'react-native-ble-plx';
+import { Buffer } from 'buffer';
 
-// ─── ESP32 Classic Bluetooth Configuration ────────────────────────────────
-// Change these to match your ESP32's advertised name or MAC address.
-export const ESP32_DEVICE_NAME = 'ESP32-LED-CLASSIC';
-export const ESP32_MAC_ADDRESS = '2C:F5:B7:85:40:C6';
+// ─── ESP32 BLE Configuration ──────────────────────────────────────────────
+// Change ESP32_DEVICE_NAME to match the advertised BLE name of your ESP32.
+// Replace SERVICE_UUID and CHARACTERISTIC_UUID with the UUIDs defined in
+// your ESP32 firmware (e.g. from a custom GATT service you declare there).
+export const ESP32_DEVICE_NAME = 'ESP32-BLE';
+export const SERVICE_UUID       = '0000FFE0-0000-1000-8000-00805F9B34FB'; // TODO: replace with your ESP32 service UUID
+export const CHARACTERISTIC_UUID = '0000FFE1-0000-1000-8000-00805F9B34FB'; // TODO: replace with your ESP32 characteristic UUID
 // ────────────────────────────────────────────────────────────────────────────
+
+// Single BleManager instance shared for the lifetime of the app.
+const bleManager = new BleManager();
 
 export default function useBluetooth() {
   const [isScanning, setIsScanning]           = useState(false);
@@ -15,7 +22,9 @@ export default function useBluetooth() {
   const [connectedDevice, setConnectedDevice] = useState(null);
   const [error, setError]                     = useState(null);
 
-  /** Request Android Bluetooth permissions. */
+  const scanTimerRef = useRef(null);
+
+  /** Request Android BLE permissions. */
   async function requestPermissions() {
     if (Platform.OS !== 'android') return true;
     if (Platform.Version >= 31) {
@@ -35,11 +44,11 @@ export default function useBluetooth() {
   }
 
   /**
-   * Scan and fetch your phone's system paired devices list directly.
-   * Filters for the ESP32 by name or MAC address.
+   * Scan for BLE peripherals and collect results for 5 seconds.
+   * Optionally filters by ESP32_DEVICE_NAME if set.
    */
   const scanForDevices = useCallback(async () => {
-    console.log('BUTTON TAP DETECTED: Running Classic Scan...');
+    console.log('BUTTON TAP DETECTED: Running BLE Scan...');
     setError(null);
     const hasPermission = await requestPermissions();
     if (!hasPermission) {
@@ -51,45 +60,54 @@ export default function useBluetooth() {
     setScannedDevices([]);
     setIsScanning(true);
 
-    try {
-      console.log('Pulling bonded registry devices from your Android settings menu...');
-      // Instantly grabs everything paired in your Android Bluetooth settings page
-      const pairedList = await RNBluetoothClassic.getBondedDevices();
-      console.log(`Found ${pairedList.length} total paired devices in system memory.`);
+    const seen = new Set();
+    const found = [];
 
-      // Find your target board by name or matching MAC address
-      const targetESP32 = pairedList.filter(
-        (d) => d.name === ESP32_DEVICE_NAME || d.id === ESP32_MAC_ADDRESS,
-      );
-
-      if (targetESP32.length > 0) {
-        console.log('SUCCESS: Located your ESP32 Classic controller!');
-        setScannedDevices(targetESP32);
-      } else {
-        console.log(
-          `WARNING: Device not found. Make sure you paired '${ESP32_DEVICE_NAME}' in your phone's Bluetooth settings first!`,
-        );
-        setError(
-          `Device not found. Pair '${ESP32_DEVICE_NAME}' in your phone's Bluetooth settings first.`,
-        );
+    bleManager.startDeviceScan(null, null, (err, device) => {
+      if (err) {
+        console.log('BLE scan error:', err.message);
+        setError(err.message || 'Scan failed.');
+        setIsScanning(false);
+        bleManager.stopDeviceScan();
+        clearTimeout(scanTimerRef.current);
+        return;
       }
-    } catch (err) {
-      console.log('Classic scan failure: ', err.message || err);
-      setError(err.message || 'Scan failed.');
-    } finally {
+      if (!device) return;
+
+      // Filter by name when ESP32_DEVICE_NAME is set
+      const nameMatch = !ESP32_DEVICE_NAME || device.name === ESP32_DEVICE_NAME;
+      if (nameMatch && !seen.has(device.id)) {
+        seen.add(device.id);
+        found.push({ id: device.id, name: device.name || 'Unknown', _device: device });
+        setScannedDevices([...found]);
+      }
+    });
+
+    // Stop scanning after 5 seconds
+    scanTimerRef.current = setTimeout(() => {
+      bleManager.stopDeviceScan();
       setIsScanning(false);
-    }
+      if (found.length === 0) {
+        console.log(`WARNING: No BLE device named '${ESP32_DEVICE_NAME}' found nearby.`);
+        setError(`No device named '${ESP32_DEVICE_NAME}' found. Make sure the ESP32 is powered on and advertising.`);
+      } else {
+        console.log(`BLE scan complete. Found ${found.length} device(s).`);
+      }
+    }, 5000);
   }, []);
 
   /** Connect to a device from scannedDevices. */
-  const connectToDevice = useCallback(async (device) => {
+  const connectToDevice = useCallback(async (item) => {
     setError(null);
     try {
-      const connected = await device.connect();
-      setConnectedDevice(connected);
+      console.log('Connecting to BLE device:', item.id);
+      const device = await bleManager.connectToDevice(item.id);
+      await device.discoverAllServicesAndCharacteristics();
+      setConnectedDevice(device);
       setIsConnected(true);
+      console.log('BLE device connected:', device.id);
     } catch (connectError) {
-      console.log('Connection failed:', connectError.message);
+      console.log('BLE connection failed:', connectError.message);
       setError(connectError.message);
     }
   }, []);
@@ -98,7 +116,7 @@ export default function useBluetooth() {
   const disconnectFromDevice = useCallback(async () => {
     if (connectedDevice) {
       try {
-        await connectedDevice.disconnect();
+        await bleManager.cancelDeviceConnection(connectedDevice.id);
       } catch (_) {
         // ignore errors on disconnect
       }
@@ -108,15 +126,156 @@ export default function useBluetooth() {
   }, [connectedDevice]);
 
   /**
-   * Write an LED/actuator value (0–100) to the ESP32 as a plain string.
-   * The ESP32 firmware should read this as a numeric ASCII string.
+   * Write an actuator value (0–100) to the ESP32 over BLE.
+   * The value is encoded as a UTF-8 string and base64-encoded for the
+   * BLE characteristic write.
    */
   const writeLEDValue = useCallback(async (value) => {
     if (!connectedDevice || !isConnected) return;
     try {
-      await connectedDevice.write(`${Math.round(value)}\n`);
+      const payload = Buffer.from(`${Math.round(value)}\n`, 'utf-8').toString('base64');
+      await bleManager.writeCharacteristicWithResponseForDevice(
+        connectedDevice.id,
+        SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        payload,
+      );
     } catch (writeError) {
-      console.log('Write failed:', writeError.message);
+      console.log('BLE write failed:', writeError.message);
+      setError(writeError.message);
+    }
+  }, [connectedDevice, isConnected]);
+
+  return {
+    isScanning,
+    isConnected,
+    scannedDevices,
+    connectedDevice,
+    error,
+    scanForDevices,
+    connectToDevice,
+    disconnectFromDevice,
+    writeLEDValue,
+  };
+}
+
+  /** Request Android BLE permissions. */
+  async function requestPermissions() {
+    if (Platform.OS !== 'android') return true;
+    if (Platform.Version >= 31) {
+      const results = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+      ]);
+      return Object.values(results).every(
+        (r) => r === PermissionsAndroid.RESULTS.GRANTED,
+      );
+    }
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+    );
+    return result === PermissionsAndroid.RESULTS.GRANTED;
+  }
+
+  /**
+   * Scan for BLE peripherals and collect results for 5 seconds.
+   * Optionally filters by ESP32_DEVICE_NAME if set.
+   */
+  const scanForDevices = useCallback(async () => {
+    console.log('BUTTON TAP DETECTED: Running BLE Scan...');
+    setError(null);
+    const hasPermission = await requestPermissions();
+    if (!hasPermission) {
+      console.log('Permissions denied by user');
+      setError('Bluetooth permissions denied.');
+      return;
+    }
+
+    setScannedDevices([]);
+    setIsScanning(true);
+
+    const seen = new Set();
+    const found = [];
+
+    bleManager.startDeviceScan(null, null, (err, device) => {
+      if (err) {
+        console.log('BLE scan error:', err.message);
+        setError(err.message || 'Scan failed.');
+        setIsScanning(false);
+        bleManager.stopDeviceScan();
+        return;
+      }
+      if (!device) return;
+
+      // Filter by name when ESP32_DEVICE_NAME is set
+      const nameMatch = !ESP32_DEVICE_NAME || device.name === ESP32_DEVICE_NAME;
+      if (nameMatch && !seen.has(device.id)) {
+        seen.add(device.id);
+        found.push({ id: device.id, name: device.name || 'Unknown', _device: device });
+        setScannedDevices([...found]);
+      }
+    });
+
+    // Stop scanning after 5 seconds
+    setTimeout(() => {
+      bleManager.stopDeviceScan();
+      setIsScanning(false);
+      if (found.length === 0) {
+        console.log(`WARNING: No BLE device named '${ESP32_DEVICE_NAME}' found nearby.`);
+        setError(`No device named '${ESP32_DEVICE_NAME}' found. Make sure the ESP32 is powered on and advertising.`);
+      } else {
+        console.log(`BLE scan complete. Found ${found.length} device(s).`);
+      }
+    }, 5000);
+  }, []);
+
+  /** Connect to a device from scannedDevices. */
+  const connectToDevice = useCallback(async (item) => {
+    setError(null);
+    try {
+      console.log('Connecting to BLE device:', item.id);
+      const device = await bleManager.connectToDevice(item.id);
+      await device.discoverAllServicesAndCharacteristics();
+      setConnectedDevice(device);
+      setIsConnected(true);
+      console.log('BLE device connected:', device.id);
+    } catch (connectError) {
+      console.log('BLE connection failed:', connectError.message);
+      setError(connectError.message);
+    }
+  }, []);
+
+  /** Disconnect from the connected device. */
+  const disconnectFromDevice = useCallback(async () => {
+    if (connectedDevice) {
+      try {
+        await bleManager.cancelDeviceConnection(connectedDevice.id);
+      } catch (_) {
+        // ignore errors on disconnect
+      }
+      setConnectedDevice(null);
+      setIsConnected(false);
+    }
+  }, [connectedDevice]);
+
+  /**
+   * Write an actuator value (0–100) to the ESP32 over BLE.
+   * The value is encoded as a UTF-8 string and base64-encoded for the
+   * BLE characteristic write.
+   */
+  const writeLEDValue = useCallback(async (value) => {
+    if (!connectedDevice || !isConnected) return;
+    try {
+      const payload = Buffer.from(`${Math.round(value)}\n`, 'utf-8').toString('base64');
+      await bleManager.writeCharacteristicWithResponseForDevice(
+        connectedDevice.id,
+        SERVICE_UUID,
+        CHARACTERISTIC_UUID,
+        payload,
+      );
+    } catch (writeError) {
+      console.log('BLE write failed:', writeError.message);
       setError(writeError.message);
     }
   }, [connectedDevice, isConnected]);

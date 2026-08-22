@@ -1,15 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, StatusBar, TouchableOpacity, Share, FlatList } from 'react-native';
-import { Link } from 'expo-router'; 
-
+import { StyleSheet, Text, View, StatusBar, TouchableOpacity, Share, FlatList, ScrollView } from 'react-native';
+import { Link } from 'expo-router';
 
 import StatusIndicator from '../components/StatusIndicator';
 import ActuatorSlider from '../components/ActuatorSlider';
 import useBluetooth from '../hooks/useBLE';
+import { Colors } from '../constants/Colors';
 
-
-import {Colors} from "../constants/Colors"
-// import { Colors } from 'react-native/types_generated/Libraries/Animated/AnimatedExports';
 export default function App() {
   const [value, setValue] = useState(0);
   const {
@@ -17,6 +14,7 @@ export default function App() {
     isConnected,
     scannedDevices,
     connectedDevice,
+    error,
     scanForDevices,
     connectToDevice,
     disconnectFromDevice,
@@ -49,67 +47,98 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
-      
-      {/* Centered Actuator Card */}
-      <View style={styles.card}>
-        
-        {/* Connection status dot component */}
-        <StatusIndicator label="STATUS" connected={isConnected} />
-        
-        {/* Main Title */}
-        <Text style={styles.title}></Text>
 
-        {/* Reusable Slider Component (passes state & event down) */}
-        <ActuatorSlider value={value} onChange={(val) => setValue(val)} />
-           {/* 2. Place the Link inside the UI return block! */}
-        
+      <View style={styles.card}>
+        {/* Connection status dot */}
+        <StatusIndicator label="STATUS" connected={isConnected} />
+
+        {/* Main Title */}
+        <Text style={styles.title}>PROSTHETIC CONTROLLER</Text>
+
+        {/* BLE panel — scan / device list / connected state */}
+        <View style={styles.blePanel}>
+          {!isConnected ? (
+            <>
+              {/* Scan button */}
+              <TouchableOpacity
+                style={[styles.actionButton, isScanning && styles.buttonDisabled]}
+                onPress={scanForDevices}
+                disabled={isScanning}
+              >
+                {isScanning ? (
+                  <View style={styles.loaderContainer}>
+                    <Text style={styles.scanBtnText}>SCANNING…</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.actionBtnText}>SCAN FOR ESP32</Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Error message */}
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+              {/* Device list */}
+              {scannedDevices.length > 0 && (
+                <View style={styles.deviceListContainer}>
+                  <Text style={styles.listLabel}>NEARBY DEVICES</Text>
+                  <ScrollView style={styles.deviceScroll}>
+                    {scannedDevices.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={styles.deviceRow}
+                        onPress={() => connectToDevice(item)}
+                      >
+                        <Text style={styles.deviceName}>{item.name || 'Unknown'}</Text>
+                        <Text style={styles.connectText}>CONNECT</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </>
+          ) : (
+            /* Connected state — show device name and disconnect button */
+            <View style={styles.connectedRow}>
+              <Text style={styles.connectedInfo}>
+                {connectedDevice?.name || connectedDevice?.id || 'Connected'}
+              </Text>
+              <TouchableOpacity
+                style={styles.disconnectButton}
+                onPress={disconnectFromDevice}
+              >
+                <Text style={styles.disconnectBtnText}>DISCONNECT</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* Slider — dimmed with lock overlay when not connected */}
+        <View style={[styles.sliderArea, !isConnected && styles.disabledArea]}>
+          <ActuatorSlider value={value} onChange={(val) => setValue(val)} />
+          {!isConnected && (
+            <View style={styles.lockOverlay}>
+              <Text style={styles.lockText}>CONNECT TO UNLOCK</Text>
+            </View>
+          )}
+        </View>
+
         <Link href="/calibration" style={styles.linkText}>
           Calibration Monitor
         </Link>
-
-        {/* Bluetooth Connect / Disconnect button */}
-        <TouchableOpacity
-          style={[styles.bleButton, isConnected && styles.bleButtonConnected]}
-          onPress={isConnected ? disconnectFromDevice : scanForDevices}
-          disabled={isScanning}
-        >
-          <Text style={styles.bleButtonText}>
-            {isScanning ? 'SCANNING…' : isConnected ? 'DISCONNECT' : 'SCAN FOR ESP32'}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Error message */}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        {/* Device picker — shown after scan, hidden once connected */}
-        {!isConnected && scannedDevices.length > 0 && (
-          <FlatList
-            data={scannedDevices}
-            keyExtractor={(item) => item.id}
-            style={styles.deviceList}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.deviceItem}
-                onPress={() => connectToDevice(item)}
-              >
-                <Text style={styles.deviceName}>{item.name || 'Unknown'}</Text>
-                <Text style={styles.deviceId}>{item.id}</Text>
-              </TouchableOpacity>
-            )}
-          />
-        )}
 
         {/* Raw Feed Output display */}
         <View style={styles.footer}>
           <Text style={styles.footerLabel}>RAW FEED VALUE</Text>
           <View style={styles.outputBox}>
-            <Text style={styles.outputText}>{Math.round(value)}</Text>
-            <TouchableOpacity style={styles.copyButton} onPress={handleCopy}>
-              <Text style={styles.copyButtonText}>SHARE</Text>
+            <View>
+              <Text style={styles.outputText}>{Math.round(value)}</Text>
+              <Text style={styles.byteLabel}>/ 100</Text>
+            </View>
+            <TouchableOpacity onPress={handleCopy}>
+              <Text style={styles.actionBtnText}>SHARE</Text>
             </TouchableOpacity>
           </View>
         </View>
-
       </View>
     </View>
   );
@@ -118,72 +147,13 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background, // Space dark theme
+    backgroundColor: '#060812',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
-  bleButton: {
-    backgroundColor: 'rgba(0, 243, 255, 0.12)',
-    borderColor: '#00f3ff4d',
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  bleButtonConnected: {
-    backgroundColor: 'rgba(0, 255, 136, 0.12)',
-    borderColor: '#00ff884d',
-  },
-  bleButtonText: {
-    color: '#f1f1f1',
-    fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  errorText: {
-    color: '#ff6b6b',
-    fontSize: 11,
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  deviceList: {
-    width: '100%',
-    maxHeight: 120,
-    marginTop: 8,
-  },
-  deviceItem: {
-    backgroundColor: 'rgba(0, 243, 255, 0.06)',
-    borderColor: '#00f3ff4d',
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 6,
-  },
-  deviceName: {
-    color: '#f1f1f1',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
-  deviceId: {
-    color: 'rgba(255, 255, 255, 0.35)',
-    fontSize: 10,
-    marginTop: 2,
-  },
-  linkText:{
-    color: '#1a1a1a',
-    padding:12,
-    borderRadius: 4,
-    borderColor: '#f1f1f1',
-    backgroundColor: '#f1f1f1',
-  },
   card: {
-    backgroundColor: 'rgba(13, 19, 36, 0.6',
+    backgroundColor: 'rgba(13, 19, 36, 0.6)',
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
     borderRadius: 16,
@@ -197,16 +167,152 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   title: {
-    color: Colors.textLight,
+    color: '#ffffff',
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: 1.5,
     marginTop: 4,
+    marginBottom: 16,
+  },
+  blePanel: {
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 10,
+    padding: 12,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  actionButton: {
+    backgroundColor: 'rgba(0, 243, 255, 0.08)',
+    borderColor: Colors.cyan,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonDisabled: {
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'transparent',
+  },
+  actionBtnText: {
+    color: Colors.cyan,
+    fontSize: 12,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  scanBtnText: {
+    color: Colors.textMuted,
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  loaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#ff6b6b',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  deviceListContainer: {
+    marginTop: 12,
+  },
+  listLabel: {
+    color: Colors.textMuted,
+    fontSize: 8,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  deviceScroll: {
+    maxHeight: 100,
+  },
+  deviceRow: {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderRadius: 6,
+    padding: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  deviceName: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  connectText: {
+    color: Colors.cyan,
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  connectedRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  connectedInfo: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  disconnectButton: {
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+    borderColor: '#ff3b30',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  disconnectBtnText: {
+    color: '#ff3b30',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  sliderArea: {
+    position: 'relative',
+  },
+  disabledArea: {
+    opacity: 0.25,
+  },
+  lockOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lockText: {
+    color: Colors.cyan,
+    fontSize: 10,
+    fontWeight: 'bold',
+    letterSpacing: 1.5,
+    backgroundColor: 'rgba(6, 8, 18, 0.8)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 243, 255, 0.2)',
+  },
+  linkText: {
+    color: '#1a1a1a',
+    padding: 12,
+    borderRadius: 4,
+    borderColor: '#f1f1f1',
+    backgroundColor: '#f1f1f1',
+    marginTop: 12,
+    textAlign: 'center',
   },
   footer: {
     borderTopColor: 'rgba(255, 255, 255, 0.05)',
     borderTopWidth: 1,
     paddingTop: 16,
+    marginTop: 8,
   },
   footerLabel: {
     color: 'rgba(255, 255, 255, 0.3)',
@@ -229,17 +335,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  copyButton: {
-    backgroundColor: 'rgba(0, 243, 255, 0.08)',
-    borderColor: '#00f3ff4d',
-    borderWidth: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-  },
-  copyButtonText: {
-    color: '#f1f1f1',
-    fontSize: 12,
-    fontWeight: 'bold',
+  byteLabel: {
+    color: Colors.textMuted,
+    fontSize: 10,
   },
 });

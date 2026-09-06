@@ -25,10 +25,9 @@
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_CONNECT"
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.dousee12.prosthetic_app"
     },
@@ -36,13 +35,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-router",
-      [
-        "with-rn-bluetooth-classic",
-        {
-          "alwaysUsageDescription": "Allow app to pair with the ESP32 actuator."
-        }
-      ]
+      "expo-router"
     ]
   }
 }
